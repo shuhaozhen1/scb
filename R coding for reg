@@ -75,7 +75,8 @@ upperb <- mu_hat[[2]]+BStile
 lowerb <- mu_hat[[2]]-BStile
 cb <- data.frame(mu_hat[1],upperb,lowerb)
 ggplot(data=cb, aes(cb[[1]], ymin = lowerb, ymax = upperb))+
-  geom_ribbon( color = "blue", fill = "white")
+  geom_ribbon( color = "blue", fill = "white")+
+  ggtitle("Confidence band") +xlab("time") + ylab("Y")
 
 #test goodness
 Ytrue <- reg.fd(mu=1, X=gaussian.process(), n=50, m=1000)
