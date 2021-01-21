@@ -1,0 +1,91 @@
+library(synfd)
+library(mcfda)
+library(ggplot2)
+library(bbefkr)
+library(gridExtra)
+library(stats)
+library(Rcpp)
+library(MASS)
+
+#generate samples using package = synfd
+Y <- reg.fd(mu=1, X=gaussian.process(), n=50, m=20)
+y1 <- Y[[2]]
+y_sample <- as.numeric(t(y1))
+t_sample <- rep(Y[[1]],50)
+Ob_df <- data.frame(x=Y[['t']], y= t(y1))
+h <- 0.1
+t_fixed <- seq(0,1,length.out = 1000)
+sub_y <- as.matrix(t(Ob_df[,3:5]))
+t1 <- as.vector(Y[[1]])
+ft <- 1
+alpha <- 0.95
+
+#plot the samples
+plot(Ob_df$x,Ob_df[,2],type ="p", xlim = c(0,1), ylim = c(-3,5),
+     main = "samples", xlab = "time_points", ylab = "response")
+for (i in 1:50) {
+  points(Ob_df$x,Ob_df[,i+1])
+}
+
+#generate and plot the NW estimator
+mu_hat <- ksmooth(t_sample,y_sample,"normal", bandwidth = h, 
+                  range.x = c(0,1), x.points = t_fixed)
+plot(mu_hat,xlim = c(0,1), ylim = c(2,0), xlab = "time", ylab = "Y", 
+     main = "mu_hat")
+
+
+#estimate the cov and sigma^2 using package = mcfda
+mu.obj <- meanfunc(Y$t,Y$y,newt=NULL,method='PACE',
+tuning='cv',weig=NULL,kernel='gauss',deg=1)
+cov.obj <- covfunc(Y$t,Y$y,newt=NULL,mu=mu.obj,method='FOURIER',
+tuning='cv',weig=NULL,domain=c(0,1))
+cov.hat <- predict(cov.obj,t_fixed)
+
+sigma_hat2 <- sigma2(t = Y$t, y = Y$y, h = h )
+
+#calcualtion for other parameters
+Ker <- function(x) {1/sqrt(2*pi)*exp(-x^2/2)}
+Ker2<- function(x) {(1/sqrt(2*pi)*exp(-x^2/2))^2}
+kappa2 <- integrate(f = Ker2, lower = -1, upper = 1)
+gammatt <- diag(cov.hat)
+C_t <- (kappa2$value * ((ft)^(-1)) * (gammatt + sigma_hat2) + 20 *h *gammatt)^(-0.5)
+
+#calculation for bootstrap covariance
+Cts <- matrix(nrow = 1000, ncol= 1000)
+for (i in 1:1000) {
+  for (k in 1:1000) {
+    Cts[i,k] <- (20-1)* h * C_t[i] *C_t[k] * cov.hat[i,k]
+  }
+}
+
+
+#implement BS method
+GPmean <- rep(0,length(t_fixed))
+BStime <- 2000
+BSdata <- mvrnorm(n=BStime, mu = GPmean, Sigma = Cts)
+BSsup <- vector()
+for (i in 1:BStime) {
+  BSsup[i] <- max(BSdata[i,])
+}
+BStile <- quantile(BSsup,((1+alpha)/2))
+
+
+#generate confidence band
+upperb <- mu_hat[[2]]+BStile
+lowerb <- mu_hat[[2]]-BStile
+cb <- data.frame(mu_hat[1],upperb,lowerb)
+ggplot(data=cb, aes(cb[[1]], ymin = lowerb, ymax = upperb))+
+  geom_ribbon( color = "blue", fill = "white")
+
+#test goodness
+Ytrue <- reg.fd(mu=1, X=gaussian.process(), n=50, m=1000)
+number.out <- 0
+for (i in 1:50) {
+  for ( k in 1:1000) {
+    if(Ytrue$y[i,k]>upperb[k] | Ytrue$y[i,k]<lowerb[k]){
+      number.out<- number.out + 1
+    }
+  }
+}
+crate <- 1-number.out/(50*1000)
+message("correct rate= ", crate)
